@@ -1,0 +1,66 @@
+image: python:3.9.6
+
+variables:
+  DOMAIN: "test.com"
+  EMAIL: "admin@$DOMAIN"
+  PIP_CACHE_DIR: "$CI_PROJECT_DIR/.cache/pip"
+
+
+stages:          # List of stages for jobs, and their order of execution
+  - test
+  - build
+  - deploy
+
+
+build:
+  image: node:17-alpine
+  stage: build
+  cache:
+    key:
+      files:
+        - frontend/package-lock.json
+    paths:
+      - frontend/.npm
+  script:
+    - cd frontend
+    - npm ci --cache .npm --prefer-offline --no-audit
+    - npm run build
+  artifacts:
+    paths:
+      - $CI_PROJECT_DIR/mysite/*
+      - $CI_PROJECT_DIR/frontend/build/*
+      - $CI_PROJECT_DIR/caddy/*
+      - $CI_PROJECT_DIR/docker-compose-template.yml
+
+
+# test:
+#   stage: test
+#   cache:
+#     paths:
+#       - $CI_PROJECT_DIR/.cache/pip
+#   before_script:
+#     - cd mysite
+#     - pip install -r requirements.txt -v
+#     - python manage.py makemigrations --settings=mysite.local
+#     - python manage.py migrate --settings=mysite.local
+#     - python manage.py createsuperuser --noinput --username admin --email $EMAIL --settings=mysite.local
+#   script:
+#     - python manage.py test --settings=mysite.local
+
+
+deploy:
+  stage: deploy
+  before_script:
+    - apt update
+    - apt install -y ssh gettext-base
+  script:
+    - chmod 600 $SSH_KEY
+    - ssh -i $SSH_KEY -o StrictHostKeyChecking=no root@dressense.me "cd server && docker-compose down && rm -rf {*,.*}" || true
+    - envsubst < docker-compose-template.yml > docker-compose.yml
+    - scp -i $SSH_KEY -o StrictHostKeyChecking=no $PWD/docker-compose.yml root@dressense.me:/root/server
+    - scp -i $SSH_KEY -o StrictHostKeyChecking=no -r $PWD/mysite root@dressense.me:/root/server
+    - scp -i $SSH_KEY -o StrictHostKeyChecking=no -r $PWD/frontend/build root@dressense.me:/root/server
+    - envsubst < caddy/caddyfile-template > caddy/Caddyfile
+    - scp -i $SSH_KEY -o StrictHostKeyChecking=no -r $PWD/caddy root@dressense.me:/root/server
+    - ssh -i $SSH_KEY -o StrictHostKeyChecking=no root@dressense.me "cd server && docker-compose up --build -d"
+

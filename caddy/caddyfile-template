@@ -1,0 +1,29 @@
+{
+	email $CADDY_EMAIL
+}
+
+api.dressense.me {
+	log {
+		output file /usr/share/logs/log.log
+	}
+	
+	handle /images/* {
+		root * /usr/share
+		file_server
+	}
+
+	handle /static/* {
+		root * /usr/share
+		file_server
+	}
+
+	handle {
+		reverse_proxy backend:8000
+	}
+}
+
+dressense.me {
+	root * /usr/share/caddy
+	try_files {path} /index.html
+	file_server
+}
